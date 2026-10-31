@@ -4,7 +4,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes"><title>好酸球 点打ち</title>
 <style>
 html,body{margin:0;height:100%;overflow:hidden;background:#111;color:#eee;font:15px -apple-system,sans-serif;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-#cv{position:fixed;inset:0;width:100vw;height:100vh;touch-action:none;display:block}
+#cv{position:fixed;left:0;top:0;width:100%;height:100%;touch-action:none;display:block}
 .ctl{position:fixed;z-index:5;background:rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:8px;min-width:44px;height:44px;font-size:20px;padding:0 10px;top:calc(env(safe-area-inset-top) + 8px)}
 #bMenu{left:8px}#bUndo{left:62px}#cnt{right:8px;font-size:15px;line-height:44px;pointer-events:none}
 #menu{position:fixed;z-index:6;top:calc(env(safe-area-inset-top) + 58px);left:8px;max-height:80vh;overflow:auto;background:rgba(20,20,20,.93);border:1px solid #555;border-radius:10px;padding:10px;width:300px;display:none}
@@ -35,6 +35,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:#111;color:#eee;font:1
 <textarea id="csvbox" readonly></textarea>
 <button id="mClear">この画像の点を全削除</button>
 <small>保存は自動（この端末のブラウザ内）。画像はアップロードされません。</small>
+<small>指で押し続けると拡大鏡が出ます。十字の位置を指でずらして調整し、離すと点が入ります。</small>
+<small id="ver">v2026-11-01b（拡大鏡・座標修正）</small>
 </div>
 <div id="toast"></div>
 <script>
@@ -46,8 +48,11 @@ const key=m=>'eosann:'+m.name+':'+m.size;
 function load(m){try{const d=JSON.parse(localStorage.getItem(key(m))||'null');if(d&&d.points)return d.points}catch(e){}return []}
 function save(m){try{localStorage.setItem(key(m),JSON.stringify({name:m.name,w:m.w,h:m.h,points:m.pts,t:Date.now()}))}catch(e){toast('保存失敗：容量不足の可能性')}}
 function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.h);toast.h=setTimeout(()=>e.style.display='none',2000)}
-function resize(){dpr=window.devicePixelRatio||1;cv.width=innerWidth*dpr;cv.height=innerHeight*dpr;draw()}
-function fit(){const m=imgs[cur];if(!m)return;const s=Math.min(innerWidth/m.w,innerHeight/m.h);view={s,x:(innerWidth-m.w*s)/2,y:(innerHeight-m.h*s)/2};draw()}
+function W(){return cv.clientWidth||innerWidth}function H(){return cv.clientHeight||innerHeight}
+// canvas backing store = its real CSS box (iPad Safari: 100vh != innerHeight caused vertical stretch -> tap offset)
+function resize(){dpr=window.devicePixelRatio||1;cv.width=Math.round(W()*dpr);cv.height=Math.round(H()*dpr);draw()}
+function loc(e){const r=cv.getBoundingClientRect();return {x:(e.clientX-r.left)*W()/r.width,y:(e.clientY-r.top)*H()/r.height}}
+function fit(){const m=imgs[cur];if(!m)return;const s=Math.min(W()/m.w,H()/m.h);view={s,x:(W()-m.w*s)/2,y:(H()-m.h*s)/2};draw()}
 function rad(m){return Math.max(4,Math.min(m.w,m.h)*0.012)*SIZES[sizeIdx][1]} // image px
 function draw(){cx.setTransform(1,0,0,1,0,0);cx.fillStyle='#111';cx.fillRect(0,0,cv.width,cv.height);const m=imgs[cur];
  $('hint').style.display=m?'none':'flex';if(!m){$('cnt').textContent='0';return}
@@ -56,7 +61,15 @@ function draw(){cx.setTransform(1,0,0,1,0,0);cx.fillStyle='#111';cx.fillRect(0,0
   for(const p of m.pts){cx.beginPath();cx.arc(p.x,p.y,r,0,7);cx.strokeStyle=p.label==='eos'?'#00ff66':'#ffd400';if(p.label!=='eos')cx.setLineDash([r*0.5,r*0.4]);else cx.setLineDash([]);cx.stroke();
    cx.setLineDash([]);cx.beginPath();cx.arc(p.x,p.y,Math.max(lw*0.8,1/view.s),0,7);cx.fillStyle=cx.strokeStyle;cx.fill()}}
  const e=m.pts.filter(p=>p.label==='eos').length,u=m.pts.length-e;
- $('cnt').textContent=(imgs.length>1?(cur+1)+'/'+imgs.length+' ':'')+e+(u?' (+'+u+'?)':'')+(mode==='uncertain'?' ?':'')}
+ $('cnt').textContent=(imgs.length>1?(cur+1)+'/'+imgs.length+' ':'')+e+(u?' (+'+u+'?)':'')+(mode==='uncertain'?' ?':'');drawLoupe(m)}
+const LR=70,LZ=3,LOFF=120;
+function drawLoupe(m){if(!g||g.kind!=='loupe')return;const fx=g.cx,fy=g.cy;let ly=fy-LOFF;if(ly-LR<4)ly=fy+LOFF;const lx=Math.min(W()-LR-4,Math.max(LR+4,fx));
+ cx.setTransform(dpr,0,0,dpr,0,0);cx.save();cx.beginPath();cx.arc(lx,ly,LR,0,7);cx.fillStyle='#111';cx.fill();cx.clip();
+ const z=view.s*LZ,q=toImg(fx,fy);cx.setTransform(dpr*z,0,0,dpr*z,dpr*(lx-q.x*z),dpr*(ly-q.y*z));cx.imageSmoothingEnabled=z<2;cx.drawImage(m.img,0,0);
+ if(!hide){const r=rad(m);cx.lineWidth=Math.max(1.5/z,r*0.18);for(const p of m.pts){cx.beginPath();cx.arc(p.x,p.y,r,0,7);cx.strokeStyle=p.label==='eos'?'#00ff66':'#ffd400';cx.stroke()}}
+ cx.restore();cx.setTransform(dpr,0,0,dpr,0,0);const col=g.lp?'#ffd400':'#fff';cx.strokeStyle='#000';cx.lineWidth=3;
+ for(const[c,w]of[['#000',3],[col,1.2]]){cx.strokeStyle=c;cx.lineWidth=w;cx.beginPath();cx.moveTo(lx-18,ly);cx.lineTo(lx-4,ly);cx.moveTo(lx+4,ly);cx.lineTo(lx+18,ly);cx.moveTo(lx,ly-18);cx.lineTo(lx,ly-4);cx.moveTo(lx,ly+4);cx.lineTo(lx,ly+18);cx.stroke()}
+ cx.strokeStyle='#fff';cx.lineWidth=2;cx.beginPath();cx.arc(lx,ly,LR,0,7);cx.stroke()}
 function toImg(sx,sy){return {x:(sx-view.x)/view.s,y:(sy-view.y)/view.s}}
 function r1(v){return Math.round(v*10)/10}
 function tapAt(sx,sy,lp){const m=imgs[cur];if(!m)return;const q=toImg(sx,sy);
@@ -67,22 +80,28 @@ function tapAt(sx,sy,lp){const m=imgs[cur];if(!m)return;const q=toImg(sx,sy);
 function undo(){const m=imgs[cur];if(!m||!m.undo.length)return;const u=m.undo.pop();if(u.t==='add')m.pts.pop();else if(u.t==='del')m.pts.splice(u.i,0,u.p);else m.pts[u.i].label=u.old;save(m);draw()}
 // gestures
 const ptr=new Map();let g=null;
-cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});
- if(ptr.size===1){g={kind:'tap',sx:e.clientX,sy:e.clientY,t:Date.now(),lx:e.clientX,ly:e.clientY,multi:false};
-  g.lpT=setTimeout(()=>{if(g&&g.kind==='tap'&&!g.multi){g.kind='done';tapAt(g.sx,g.sy,true);if(navigator.vibrate)navigator.vibrate(20)}},550)}
- else if(g){g.multi=true;g.kind='pinch';clearTimeout(g.lpT);startPinch()}});
+// 1 finger: quick tap = point at finger; hold 200ms still = loupe (magnified view above finger, crosshair = exact target, slide to adjust,
+// release = place; keep still to 650ms = uncertain); drag before loupe = pan; 2 fingers = pinch/pan. Mouse: click (shift = uncertain), no loupe.
+const LOUPE_MS=200,LP_MS=650;
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);const P=loc(e);ptr.set(e.pointerId,P);
+ if(ptr.size===1){g={kind:'tap',sx:P.x,sy:P.y,cx:P.x,cy:P.y,lx:P.x,ly:P.y,multi:false,lp:false,moved:false,touch:e.pointerType!=='mouse'};
+  if(g.touch){const gg=g;g.loT=setTimeout(()=>{if(g===gg&&g.kind==='tap'){g.kind='loupe';draw()}},LOUPE_MS);
+   g.lpT=setTimeout(()=>{if(g===gg&&g.kind==='loupe'&&!g.moved){g.lp=true;if(navigator.vibrate)navigator.vibrate(20);draw()}},LP_MS)}}
+ else if(g){const wasL=g.kind==='loupe';g.multi=true;g.kind='pinch';clearTimeout(g.lpT);clearTimeout(g.loT);if(wasL)draw();startPinch()}});
 function pts2(){const a=[...ptr.values()];return a.slice(0,2)}
 function startPinch(){const[a,b]=pts2();g.d0=Math.hypot(a.x-b.x,a.y-b.y)||1;g.c0={x:(a.x+b.x)/2,y:(a.y+b.y)/2};g.v0={...view}}
-cv.addEventListener('pointermove',e=>{if(!ptr.has(e.pointerId)||!g)return;e.preventDefault();ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});
+cv.addEventListener('pointermove',e=>{if(!ptr.has(e.pointerId)||!g)return;e.preventDefault();const P=loc(e);ptr.set(e.pointerId,P);
  if(g.kind==='pinch'&&ptr.size>=2){const[a,b]=pts2();const d=Math.hypot(a.x-b.x,a.y-b.y),c={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
   const s=Math.min(60,Math.max(0.05,g.v0.s*d/g.d0));const ix=(g.c0.x-g.v0.x)/g.v0.s,iy=(g.c0.y-g.v0.y)/g.v0.s;view={s,x:c.x-ix*s,y:c.y-iy*s};draw()}
- else if(ptr.size===1&&(g.kind==='tap'||g.kind==='pan')){if(g.kind==='tap'&&Math.hypot(e.clientX-g.sx,e.clientY-g.sy)>10){g.kind='pan';clearTimeout(g.lpT)}
-  if(g.kind==='pan'){view.x+=e.clientX-g.lx;view.y+=e.clientY-g.ly;draw()}g.lx=e.clientX;g.ly=e.clientY}});
+ else if(ptr.size===1&&g.kind==='loupe'){if(Math.hypot(P.x-g.sx,P.y-g.sy)>4)g.moved=true;g.cx=P.x;g.cy=P.y;draw()}
+ else if(ptr.size===1&&(g.kind==='tap'||g.kind==='pan')){if(g.kind==='tap'&&Math.hypot(P.x-g.sx,P.y-g.sy)>10){g.kind='pan';clearTimeout(g.lpT);clearTimeout(g.loT)}
+  if(g.kind==='pan'){view.x+=P.x-g.lx;view.y+=P.y-g.ly;draw()}g.lx=P.x;g.ly=P.y}});
 function end(e){if(!ptr.has(e.pointerId))return;ptr.delete(e.pointerId);if(!g)return;
- if(ptr.size===0){clearTimeout(g.lpT);if(g.kind==='tap'&&!g.multi&&e.type==='pointerup')tapAt(g.sx,g.sy,e.shiftKey);g=null}
+ if(ptr.size===0){clearTimeout(g.lpT);clearTimeout(g.loT);const k=g,up=e.type==='pointerup';g=null;
+  if(k.kind==='tap'&&!k.multi&&up)tapAt(k.sx,k.sy,e.shiftKey);else if(k.kind==='loupe'&&up)tapAt(k.cx,k.cy,k.lp);else draw()}
  else if(g.kind==='pinch'&&ptr.size>=2)startPinch();else if(g.kind==='pinch'){g.kind='pinchrest'}}
 cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);
-cv.addEventListener('wheel',e=>{e.preventDefault();const f=Math.exp(-e.deltaY*0.002),s=Math.min(60,Math.max(0.05,view.s*f));const ix=(e.clientX-view.x)/view.s,iy=(e.clientY-view.y)/view.s;view={s,x:e.clientX-ix*s,y:e.clientY-iy*s};draw()},{passive:false});
+cv.addEventListener('wheel',e=>{e.preventDefault();const L=loc(e);const f=Math.exp(-e.deltaY*0.002),s=Math.min(60,Math.max(0.05,view.s*f));const ix=(L.x-view.x)/view.s,iy=(L.y-view.y)/view.s;view={s,x:L.x-ix*s,y:L.y-iy*s};draw()},{passive:false});
 ['gesturestart','gesturechange','gestureend'].forEach(t=>document.addEventListener(t,e=>e.preventDefault(),{passive:false}));
 document.addEventListener('touchmove',e=>{if(e.target===cv||e.touches.length>1)e.preventDefault()},{passive:false});
 document.addEventListener('dblclick',e=>e.preventDefault());
@@ -115,6 +134,6 @@ async function exportCSV(list,fname){if(!list.length)return toast('画像があ�
 $('mExp').onclick=()=>{const m=imgs[cur];if(m)exportCSV([m],m.name.replace(/\.[^.]+$/,'')+'.csv')};
 $('mExpAll').onclick=()=>exportCSV(imgs,'eos_points_'+stamp()+'.csv');
 $('mCopy').onclick=async()=>{const csv=makeCSV(imgs);window.__lastCSV=csv;try{await navigator.clipboard.writeText(csv);toast('コピーしました')}catch(e){const t=$('csvbox');t.style.display='block';t.value=csv;t.focus();t.select();toast('自動コピー不可：枠内を選択してコピー')}};
-addEventListener('resize',()=>{resize();fit()});resize();
-window.__eos={imgs:()=>imgs,makeCSV,view:()=>view};
+addEventListener('resize',()=>{resize();fit()});if(window.visualViewport)visualViewport.addEventListener('resize',()=>{resize()});addEventListener('orientationchange',()=>setTimeout(()=>{resize();fit()},300));resize();
+window.__eos={imgs:()=>imgs,makeCSV,view:()=>view,g:()=>g&&{kind:g.kind,lp:g.lp,cx:g.cx,cy:g.cy}};
 </script></body></html>
