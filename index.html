@@ -30,13 +30,13 @@ html,body{margin:0;height:100%;overflow:hidden;background:#111;color:#eee;font:1
 <button id="mFit">全体表示に戻す</button>
 <small>書き出し（CSV: image,x,y,label）</small>
 <button id="mExp">この画像のCSVを保存/共有</button>
-<button id="mExpAll">全画像のCSVを保存/共有</button>
-<button id="mCopy">全画像のCSVをコピー</button>
+<button id="mCopy">この画像のCSVをコピー</button>
 <textarea id="csvbox" readonly></textarea>
 <button id="mClear">この画像の点を全削除</button>
 <small>保存は自動（この端末のブラウザ内）。画像はアップロードされません。</small>
 <small>指で押し続けると拡大鏡が出ます。十字の位置を指でずらして調整し、離すと点が入ります。</small>
-<small id="ver">v2026-11-01b（拡大鏡・座標修正）</small>
+<small>点は画像ごとに保存。新しい画像を開くと空の状態から始まり、同じ画像を開き直すとその画像の点が戻ります。</small>
+<small id="ver">v2026-11-02（画像ごとに点を分離）</small>
 </div>
 <div id="toast"></div>
 <script>
@@ -107,7 +107,7 @@ document.addEventListener('touchmove',e=>{if(e.target===cv||e.touches.length>1)e
 document.addEventListener('dblclick',e=>e.preventDefault());
 // images
 $('mOpen').onclick=()=>$('file').click();
-$('file').onchange=async e=>{const fs=[...e.target.files];for(const f of fs){const url=URL.createObjectURL(f);const img=new Image();
+$('file').onchange=async e=>{const fs=[...e.target.files];if(fs.length)imgs=[];cur=-1;for(const f of fs){const url=URL.createObjectURL(f);const img=new Image();
   await new Promise((ok,ng)=>{img.onload=ok;img.onerror=ng;img.src=url}).catch(()=>toast('読込失敗: '+f.name));if(!img.naturalWidth)continue;
   let ex=imgs.findIndex(m=>m.name===f.name&&m.size===f.size);if(ex>=0){cur=ex;continue}
   const m={name:f.name,size:f.size,img,w:img.naturalWidth,h:img.naturalHeight,undo:[]};m.pts=load(m);imgs.push(m);cur=imgs.length-1}
@@ -132,8 +132,7 @@ async function exportCSV(list,fname){if(!list.length)return toast('画像があ�
  if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:fname});return}catch(e){if(e.name==='AbortError')return}}
  const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=fname;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000);toast('保存: '+fname)}
 $('mExp').onclick=()=>{const m=imgs[cur];if(m)exportCSV([m],m.name.replace(/\.[^.]+$/,'')+'.csv')};
-$('mExpAll').onclick=()=>exportCSV(imgs,'eos_points_'+stamp()+'.csv');
-$('mCopy').onclick=async()=>{const csv=makeCSV(imgs);window.__lastCSV=csv;try{await navigator.clipboard.writeText(csv);toast('コピーしました')}catch(e){const t=$('csvbox');t.style.display='block';t.value=csv;t.focus();t.select();toast('自動コピー不可：枠内を選択してコピー')}};
+$('mCopy').onclick=async()=>{const m=imgs[cur];if(!m)return toast('画像がありません');const csv=makeCSV([m]);window.__lastCSV=csv;try{await navigator.clipboard.writeText(csv);toast('コピーしました')}catch(e){const t=$('csvbox');t.style.display='block';t.value=csv;t.focus();t.select();toast('自動コピー不可：枠内を選択してコピー')}};
 addEventListener('resize',()=>{resize();fit()});if(window.visualViewport)visualViewport.addEventListener('resize',()=>{resize()});addEventListener('orientationchange',()=>setTimeout(()=>{resize();fit()},300));resize();
 window.__eos={imgs:()=>imgs,makeCSV,view:()=>view,g:()=>g&&{kind:g.kind,lp:g.lp,cx:g.cx,cy:g.cy}};
 </script></body></html>
